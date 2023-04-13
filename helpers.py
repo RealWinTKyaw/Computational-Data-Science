@@ -12,8 +12,8 @@ def create_dataset(root, transformation):
     dataset = ImageFolder(root, transformation)
     return dataset
 
-def produce_loader(data, batch_size, sampler=None):
-    loader = torch.utils.data.DataLoader(data, batch_size = batch_size, sampler=sampler, shuffle = True)
+def produce_loader(data, batch_size, shuffle=False, sampler=None):
+    loader = torch.utils.data.DataLoader(data, batch_size = batch_size, sampler=sampler, shuffle = shuffle)
     return loader
 
 def visualize_data(dataset, figsize=(8,8), axes=3):
@@ -38,23 +38,23 @@ def visualize_data(dataset, figsize=(8,8), axes=3):
     indices = []
     plt.show()
 
-def test(device, model, data_loader, criterion=nn.CrossEntropyLoss(), get_predictions=False):
+def test(device, model, data_loader, criterion=nn.CrossEntropyLoss(), autoencoder=None, get_predictions=False):
     # Use cross-entropy loss function
     model.eval()
     # Initialize epoch loss and accuracy
-    epoch_loss = 0.0
+    test_loss = 0.0
     correct = 0
     total = 0
     # Get list of predictions for confusion matrix
     if get_predictions:
         true_labels = torch.tensor([]).to(device)
         model_preds = torch.tensor([]).to(device)
-        correct_list = []
-        wrong_list = []
     # Iterate over test data
     for inputs, labels in data_loader:
         # Get from dataloader and send to device
         inputs = inputs.to(device)
+        if autoencoder:
+            inputs = autoencoder.get_features(inputs)
         labels = labels.to(device)
         # Compute model output and loss
         # (No grad computation here, as it is the test data)
@@ -64,26 +64,22 @@ def test(device, model, data_loader, criterion=nn.CrossEntropyLoss(), get_predic
             loss = criterion(outputs, labels)
         if get_predictions:
             true_labels = torch.cat((true_labels, labels))
-            model_preds = torch.cat((model_preds, predicted))
-            if (predicted.item() == labels.item()):
-                correct_list.append( (inputs.squeeze().detach().cpu().numpy(), labels.item()) )
-            else:
-                wrong_list.append( (inputs.squeeze().detach().cpu().numpy(), labels.item()) )
+            model_preds = torch.cat((model_preds, predicted)) 
         # Accumulate loss and correct predictions for epoch
-        epoch_loss += loss.item()
+        test_loss += loss.item()
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         # Calculate epoch loss and accuracy
-    epoch_loss /= len(data_loader)
-    epoch_acc = correct/total
+    test_loss /= len(data_loader)
+    test_acc = correct/total
     if get_predictions:
         true_labels = true_labels.type(torch.int64).cpu().numpy()
         model_preds = model_preds.type(torch.int64).cpu().numpy()
-        print(f'Test loss: {epoch_loss:.4f}, Test accuracy: {epoch_acc:.4f}')
-        return true_labels, model_preds, correct_list, wrong_list, epoch_loss, epoch_acc
-    return epoch_loss, epoch_acc
+        print(f'Test loss: {test_loss:.4f}, Test accuracy: {test_acc:.4f}')
+        return true_labels, model_preds, test_loss, test_acc
+    return test_loss, test_acc
 
-def train(device, model, train_loader, valid_loader, optimizer, criterion=nn.CrossEntropyLoss(), epochs=1):
+def train(device, model, train_loader, valid_loader, optimizer, epochs, criterion=nn.CrossEntropyLoss(), autoencoder=None):
     # Performance curves data
     train_losses = []
     train_accuracies = []
@@ -105,6 +101,8 @@ def train(device, model, train_loader, valid_loader, optimizer, criterion=nn.Cro
             # Zero out gradients
             optimizer.zero_grad()
             # Compute model output and loss
+            if autoencoder:
+                inputs = autoencoder.get_features(inputs)
             outputs = model(inputs)
             _, predicted = torch.max(outputs.data, 1)
             loss = criterion(outputs, labels)
@@ -126,10 +124,14 @@ def train(device, model, train_loader, valid_loader, optimizer, criterion=nn.Cro
         print(f'--- Epoch {epoch+1}/{epochs}: Train loss: {epoch_loss:.4f}, Train accuracy: {epoch_acc:.4f}')
         
         # Validation set
-        epoch_loss, epoch_acc = test(device, model, valid_loader, criterion)
-        val_losses.append(epoch_loss)
-        val_accuracies.append(epoch_acc)
-        print(f'--- Epoch {epoch+1}/{epochs}: Val loss: {epoch_loss:.4f}, Val accuracy: {epoch_acc:.4f}')      
+        val_loss, val_acc = test(device, model, valid_loader, criterion, autoencoder)
+        if val_acc >= 0.62:
+            torch.save({'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict()}, 
+            f'./{model.__class__.__name__}_{epoch+1}epochs')
+        val_losses.append(val_loss)
+        val_accuracies.append(val_acc)
+        print(f'--- Epoch {epoch+1}/{epochs}: Val loss: {val_loss:.4f}, Val accuracy: {val_acc:.4f}')      
     return train_losses, train_accuracies, val_losses, val_accuracies
 
 def show_metrics(true_labels, model_preds):
@@ -138,3 +140,33 @@ def show_metrics(true_labels, model_preds):
     print(f'Precision: {precision_score(true_labels, model_preds)}')
     print(f'Recall: {recall_score(true_labels, model_preds)}')
     print(f'F1 score: {f1_score(true_labels, model_preds)}')
+    
+def get_pictures_test(device, model, data_loader, autoencoder=None):
+    # Use cross-entropy loss function
+    model.eval()
+    # Initialize epoch loss and accuracy
+    correct_list = []
+    wrong_list = []
+    true_labels = torch.tensor([]).to(device)
+    model_preds = torch.tensor([]).to(device)
+    # Iterate over test data
+    for inputs, labels in data_loader:
+        # Get from dataloader and send to device
+        inputs_ = inputs.to(device)
+        if autoencoder:
+            inputs_ = autoencoder.get_features(inputs_)
+        labels = labels.to(device)
+        # Compute model output and loss
+        # (No grad computation here, as it is the test data)
+        with torch.no_grad():
+            outputs = model(inputs_)
+            _, predicted = torch.max(outputs.data, 1)
+            true_labels = torch.cat((true_labels, labels))
+            model_preds = torch.cat((model_preds, predicted)) 
+            if (predicted.item() == labels.item()):
+                correct_list.append( (inputs.squeeze().detach().cpu().numpy(), labels.item()) )
+            else:
+                wrong_list.append( (inputs.squeeze().detach().cpu().numpy(), labels.item()) )
+    true_labels = true_labels.type(torch.int64).cpu().numpy()
+    model_preds = model_preds.type(torch.int64).cpu().numpy()
+    return correct_list, wrong_list, true_labels, model_preds
