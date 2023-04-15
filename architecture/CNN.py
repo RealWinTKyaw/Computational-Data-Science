@@ -29,7 +29,7 @@ class DeepSearchLinear(torch.nn.Module):
     def forward(self, x):
         x = self.linear(x)
         x = self.batch_norm(x)
-        x = torch.relu(x)
+        x = F.leaky_relu(x)
         x = self.dropout(x)
         return x
     
