@@ -2,7 +2,6 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import torchvision
-from torchinfo import summary
 
 class DeepSearchConv(torch.nn.Module):
     def __init__(self, inputs, outputs, kernel_size):
