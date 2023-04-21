@@ -2,7 +2,6 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import torchvision
-from torchinfo import summary
 
 class DeepSearchConv(torch.nn.Module):
     def __init__(self, inputs, outputs, kernel_size):
@@ -51,8 +50,6 @@ class DeepSearch(torch.nn.Module):
         alexnet = torchvision.models.alexnet(weights = torchvision.models.AlexNet_Weights.DEFAULT)
         convexnet = torchvision.models.convnext_base(weights = torchvision.models.ConvNeXt_Base_Weights.DEFAULT)
         googlenet = torchvision.models.googlenet(weights =torchvision.models.GoogLeNet_Weights.DEFAULT)
-
-        # Telling the model to keep pre-trained weights
         for param in resnet.parameters():    
             param.requires_grad = False
         for param in alexnet.parameters():
@@ -66,11 +63,12 @@ class DeepSearch(torch.nn.Module):
         self.model_3 = convexnet
         self.model_4 = googlenet
         
+        
         self.output = nn.Linear(hidden_linear[-1], labels)
     
     def forward(self, x):
         x_1 = self.model_1(x)
-        x_2 = self.model_2(x)
+        x_2= self.model_2(x)
         x_3 = self.model_3(x)
         x_4 = self.model_4(x)
         x = x_1+ x_2 +x_3 +x_4
